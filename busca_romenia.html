@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Busca heurística na Romênia: gulosa e A*</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f4;
+    --surface: #ffffff;
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --border: #d9d9d4;
+    --edge: #c4c4bf;
+    --edge-label: #7a7a76;
+    --node: #9db2c8;
+    --node-stroke: #5d7691;
+    --frontier: #f5c842;
+    --current: #f08a24;
+    --closed: #b5b5b0;
+    --path: #d62828;
+    --btn: #2f6fdb;
+    --btn-text: #ffffff;
+    --btn-off: #a9b8d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618;
+      --surface: #222225;
+      --text: #ececec;
+      --muted: #a0a0a6;
+      --border: #3a3a40;
+      --edge: #4b4b52;
+      --edge-label: #9a9aa2;
+      --node: #4f6a85;
+      --node-stroke: #8aa6c4;
+      --frontier: #d9a92b;
+      --current: #ff9f43;
+      --closed: #5f5f66;
+      --path: #ff5c5c;
+      --btn: #4d86ff;
+      --btn-text: #ffffff;
+      --btn-off: #3b4a66;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: .92rem; }
+
+  .controles {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin-bottom: 14px;
+  }
+  button {
+    font: inherit;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 16px;
+    cursor: pointer;
+    background: var(--btn);
+    color: var(--btn-text);
+  }
+  button.secundario {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button:disabled { background: var(--btn-off); cursor: not-allowed; }
+  label.vel {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--muted); font-size: .9rem;
+  }
+
+  .mapa {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .rotulo-aresta {
+    font-size: 11px;
+    fill: var(--edge-label);
+    paint-order: stroke;
+    stroke: var(--surface);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+  }
+  .rotulo-cidade { font-size: 12px; fill: var(--text); }
+  .rotulo-cidade.destaque { font-size: 13px; font-weight: 700; }
+  .caixa-texto { font-size: 13px; font-weight: 600; fill: var(--text); }
+
+  .legenda {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    font-size: .85rem; color: var(--muted); margin-top: 10px;
+  }
+  .legenda span::before {
+    content: "";
+    display: inline-block;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: -1px;
+    background: var(--c);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 8px; }
+  .card p { margin: 6px 0; font-size: .9rem; line-height: 1.5; }
+  .dist { font-size: 1.5rem; font-weight: 600; }
+  .dist small {
+    display: block; font-size: .85rem; font-weight: 400;
+    color: var(--muted); margin-top: 2px;
+  }
+  .muted { color: var(--muted); }
+  .rota { line-height: 1.6; }
+
+  .comparacao { margin-top: 12px; font-size: .95rem; min-height: 1.4em; }
+
+  .log {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    height: 220px;
+    overflow-y: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .82rem;
+  }
+  .log div { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+
+  .explica { margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Busca heurística: Arad → Bucharest</h1>
+<p class="sub">Mapa da Romênia (Russell &amp; Norvig). Distâncias das estradas em km. Heurística h(n) = distância em linha reta até Bucharest.</p>
+
+<div class="controles">
+  <button id="btnGulosa">Busca gulosa</button>
+  <button id="btnAstar">A*</button>
+  <button id="btnLimpar" class="secundario">Limpar</button>
+  <label class="vel">Velocidade
+    <input type="range" id="velocidade" min="1" max="10" step="1" value="4">
+  </label>
+</div>
+
+<div class="mapa">
+  <svg id="svg" viewBox="0 0 800 560" role="img" aria-label="Mapa da Romênia com as cidades e estradas"></svg>
+</div>
+
+<div class="legenda">
+  <span style="--c: var(--current)">Expandindo</span>
+  <span style="--c: var(--frontier)">Fronteira</span>
+  <span style="--c: var(--closed)">Já expandida</span>
+  <span style="--c: var(--path)">Caminho escolhido</span>
+</div>
+
+<div class="grid">
+  <div class="card" id="cardGulosa"></div>
+  <div class="card" id="cardAstar"></div>
+</div>
+
+<div class="comparacao" id="comparacao"></div>
+
+<div class="log" id="log"></div>
+
+<div class="card explica">
+  <h2>Por que a gulosa erra?</h2>
+  <p>A gulosa olha só para h(n). Em Sibiu, Fagaras tem h = 176 km, menor que o de Rimnicu Vilcea (193 km), então ela segue por Fagaras e chega a Bucharest por 450 km.</p>
+  <p>O A* soma o custo já percorrido: f = g + h. Em Sibiu, Rimnicu Vilcea dá f = 220 + 193 = 413 e Fagaras dá f = 239 + 176 = 415. Rimnicu é expandida primeiro. A rota por Fagaras põe Bucharest na fronteira com 450 km, mas a rota por Pitesti, com f = 417, é expandida antes e reduz o custo de Bucharest para 418 km.</p>
+</div>
+
+<script>
+  const ORIGEM = "Arad";
+  const DESTINO = "Bucharest";
+
+  // Coordenadas aproximadas (longitude, latitude), só para desenhar o mapa
+  const COORD = {
+    "Arad": [21.31, 46.18],
+    "Zerind": [21.52, 46.62],
+    "Oradea": [21.92, 47.05],
+    "Timisoara": [21.23, 45.75],
+    "Lugoj": [21.90, 45.69],
+    "Mehadia": [22.36, 44.90],
+    "Drobeta": [22.64, 44.63],
+    "Craiova": [23.80, 44.32],
+    "Sibiu": [24.15, 45.79],
+    "Rimnicu Vilcea": [24.37, 45.10],
+    "Fagaras": [24.97, 45.84],
+    "Pitesti": [24.87, 44.86],
+    "Bucharest": [26.10, 44.43],
+    "Giurgiu": [25.95, 43.90],
+    "Urziceni": [26.64, 44.72],
+    "Hirsova": [27.95, 44.69],
+    "Eforie": [28.63, 44.05],
+    "Vaslui": [27.73, 46.64],
+    "Iasi": [27.60, 47.16],
+    "Neamt": [26.37, 47.20]
+  };
+
+  const ESTRADAS = [
+    ["Arad", "Zerind", 75], ["Arad", "Sibiu", 140], ["Arad", "Timisoara", 118],
+    ["Zerind", "Oradea", 71], ["Oradea", "Sibiu", 151], ["Timisoara", "Lugoj", 111],
+    ["Lugoj", "Mehadia", 70], ["Mehadia", "Drobeta", 75], ["Drobeta", "Craiova", 120],
+    ["Craiova", "Rimnicu Vilcea", 146], ["Craiova", "Pitesti", 138], ["Sibiu", "Fagaras", 99],
+    ["Sibiu", "Rimnicu Vilcea", 80], ["Rimnicu Vilcea", "Pitesti", 97], ["Fagaras", "Bucharest", 211],
+    ["Pitesti", "Bucharest", 101], ["Bucharest", "Giurgiu", 90], ["Bucharest", "Urziceni", 85],
+    ["Urziceni", "Hirsova", 98], ["Urziceni", "Vaslui", 142], ["Hirsova", "Eforie", 86],
+    ["Vaslui", "Iasi", 92], ["Iasi", "Neamt", 87]
+  ];
+
+  // h(n): distância em linha reta até Bucharest, em km
+  const HEUR = {
+    "Arad": 366, "Bucharest": 0, "Craiova": 160, "Drobeta": 242,
+    "Eforie": 161, "Fagaras": 176, "Giurgiu": 77, "Hirsova": 151,
+    "Iasi": 226, "Lugoj": 244, "Mehadia": 241, "Neamt": 234,
+    "Oradea": 380, "Pitesti": 100, "Rimnicu Vilcea": 193,
+    "Sibiu": 253, "Timisoara": 329, "Urziceni": 80,
+    "Vaslui": 199, "Zerind": 374
+  };
+
+  const VIZINHOS = {};
+  for (const [a, b, d] of ESTRADAS) {
+    (VIZINHOS[a] ??= {})[b] = d;
+    (VIZINHOS[b] ??= {})[a] = d;
+  }
+
+  // Projeção geográfica simples para o SVG (800 x 560)
+  const W = 800, H_SVG = 560, PAD = 50;
+  const LON_MIN = 21, LON_MAX = 29, LAT_MIN = 43.6, LAT_MAX = 47.5;
+  function projetar([lon, lat]) {
+    return {
+      x: PAD + (lon - LON_MIN) / (LON_MAX - LON_MIN) * (W - 2 * PAD),
+      y: PAD + (LAT_MAX - lat) / (LAT_MAX - LAT_MIN) * (H_SVG - 2 * PAD)
+    };
+  }
+  const P = {};
+  for (const c in COORD) P[c] = projetar(COORD[c]);
+
+  function chave(a, b) { return [a, b].sort().join("|"); }
+  function fmtMetros(km) { return (km * 1000).toLocaleString("pt-BR") + " m"; }
+
+  // ----- Algoritmos: retornam uma lista de passos para animar -----
+  function buscar(modo) {
+    const g = { [ORIGEM]: 0 };
+    const pai = { [ORIGEM]: null };
+    const fronteira = new Set([ORIGEM]);
+    const fechados = new Set();
+    const passos = [];
+    let expandidos = 0;
+
+    const prioridade = c => (modo === "gulosa" ? HEUR[c] : g[c] + HEUR[c]);
+    const snapFronteira = () => [...fronteira].map(c => ({ cidade: c, valor: prioridade(c) }));
+
+    while (fronteira.size > 0) {
+      let atual = null;
+      for (const c of fronteira) {
+        if (atual === null || prioridade(c) < prioridade(atual)) atual = c;
+      }
+      fronteira.delete(atual);
+      fechados.add(atual);
+      expandidos++;
+
+      if (atual === DESTINO) {
+        passos.push({
+          atual, fechados: [...fechados], fronteira: snapFronteira(),
+          caminho: [], expandidos,
+          texto: `Destino alcançado: ${atual}`
+        });
+        break;
+      }
+
+      const novos = [];
+      for (const [v, d] of Object.entries(VIZINHOS[atual])) {
+        if (fechados.has(v)) continue;
+        const ng = g[atual] + d;
+        const descoberto = !(v in g);
+        const melhor = modo === "astar" && !descoberto && ng < g[v];
+        if (descoberto || melhor) {
+          g[v] = ng;
+          pai[v] = atual;
+          fronteira.add(v);
+          novos.push(v);
+        }
+      }
+
+      const detalhe = modo === "gulosa"
+        ? `h = ${HEUR[atual]} km`
+        : `g = ${g[atual]} km, h = ${HEUR[atual]} km, f = ${g[atual] + HEUR[atual]} km`;
+
+      passos.push({
+        atual, fechados: [...fechados], fronteira: snapFronteira(),
+        caminho: [], expandidos,
+        texto: `Expandindo ${atual} (${detalhe})` +
+               (novos.length ? ` → novos: ${novos.join(", ")}` : "")
+      });
+    }
+
+    // Reconstrói o caminho pelos pais
+    const caminho = [];
+    for (let c = DESTINO; c != null; c = pai[c]) caminho.unshift(c);
+
+    // Passos de animação do caminho escolhido, somando a distância
+    let acumulado = 0;
+    const base = passos[passos.length - 1];
+    for (let i = 1; i < caminho.length; i++) {
+      const d = VIZINHOS[caminho[i - 1]][caminho[i]];
+      acumulado += d;
+      passos.push({
+        atual: null, fechados: base.fechados, fronteira: base.fronteira,
+        caminho: caminho.slice(0, i + 1), acumulado, expandidos,
+        texto: `Trecho ${caminho[i - 1]} → ${caminho[i]}: +${d} km (total ${acumulado} km)`
+      });
+    }
+
+    return { modo, caminho, distancia: acumulado, expandidos, passos };
+  }
+
+  // ----- Desenho do mapa -----
+  function desenhar(estado = {}) {
+    const atual = estado.atual ?? null;
+    const fechados = new Set(estado.fechados ?? []);
+    const fronteira = new Set((estado.fronteira ?? []).map(f => f.cidade));
+    const caminho = estado.caminho ?? [];
+    const caminhoSet = new Set(caminho);
+    const arestasCaminho = new Set();
+    for (let i = 1; i < caminho.length; i++) arestasCaminho.add(chave(caminho[i - 1], caminho[i]));
+
+    let s = "";
+
+    // Estradas
+    for (const [a, b] of ESTRADAS) {
+      const emCaminho = arestasCaminho.has(chave(a, b));
+      const p = P[a], q = P[b];
+      s += `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" ` +
+           `style="stroke:${emCaminho ? "var(--path)" : "var(--edge)"}" ` +
+           `stroke-width="${emCaminho ? 5 : 2.5}" stroke-linecap="round"/>`;
+    }
+
+    // Rótulos das distâncias
+    for (const [a, b, d] of ESTRADAS) {
+      const p = P[a], q = P[b];
+      s += `<text class="rotulo-aresta" x="${(p.x + q.x) / 2}" y="${(p.y + q.y) / 2}" ` +
+           `text-anchor="middle" dy="4">${d}</text>`;
+    }
+
+    // Cidades
+    for (const c of Object.keys(COORD)) {
+      const { x, y } = P[c];
+      let cor;
+      if (caminhoSet.has(c)) cor = "var(--path)";
+      else if (c === atual) cor = "var(--current)";
+      else if (fronteira.has(c)) cor = "var(--frontier)";
+      else if (fechados.has(c)) cor = "var(--closed)";
+      else cor = "var(--node)";
+      const r = c === atual ? 11 : 8;
+      const destaque = c === ORIGEM || c === DESTINO;
+      s += `<circle cx="${x}" cy="${y}" r="${r}" ` +
+           `style="fill:${cor};stroke:var(--node-stroke)" stroke-width="2"/>`;
+      s += `<text class="rotulo-cidade${destaque ? " destaque" : ""}" x="${x + 12}" y="${y - 10}">${c}</text>`;
+    }
+
+    // Caixa com o custo acumulado ou o número de expansões
+    let textoCaixa;
+    if (estado.acumulado !== undefined) {
+      textoCaixa = `Caminho: ${estado.acumulado} km (${fmtMetros(estado.acumulado)})`;
+    } else {
+      textoCaixa = `Nós expandidos: ${estado.expandidos ?? 0}`;
+    }
+    s += `<rect x="16" y="14" width="300" height="30" rx="6" style="fill:var(--surface);stroke:var(--border)"/>`;
+    s += `<text class="caixa-texto" x="28" y="34">${textoCaixa}</text>`;
+
+    document.getElementById("svg").innerHTML = s;
+  }
+
+  // ----- Estado da interface -----
+  const resultados = { gulosa: null, astar: null };
+  let executando = false;
+  let timer = null;
+
+  const atraso = () => Math.round(1400 / Number(document.getElementById("velocidade").value));
+
+  function logar(texto) {
+    const log = document.getElementById("log");
+    const div = document.createElement("div");
+    div.textContent = texto;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function definirBotoes(desabilitar) {
+    document.getElementById("btnGulosa").disabled = desabilitar;
+    document.getElementById("btnAstar").disabled = desabilitar;
+  }
+
+  function pararAnimacao() {
+    clearTimeout(timer);
+    timer = null;
+    executando = false;
+    definirBotoes(false);
+  }
+
+  function iniciar(modo) {
+    if (executando) return;
+    const res = buscar(modo);
+    document.getElementById("log").innerHTML = "";
+    executando = true;
+    definirBotoes(true);
+
+    const passos = res.passos;
+    let i = 0;
+    const proximo = () => {
+      if (i >= passos.length) {
+        concluir(modo, res);
+        return;
+      }
+      const p = passos[i++];
+      desenhar(p);
+      logar(p.texto);
+      timer = setTimeout(proximo, atraso());
+    };
+    proximo();
+  }
+
+  function concluir(modo, res) {
+    executando = false;
+    timer = null;
+    definirBotoes(false);
+    resultados[modo] = res;
+    renderizarResultados();
+    logar(`Concluído: ${res.distancia} km (${fmtMetros(res.distancia)}) com ${res.expandidos} expansões.`);
+  }
+
+  function renderCard(id, titulo, res) {
+    const el = document.getElementById(id);
+    if (!res) {
+      el.innerHTML = `<h2>${titulo}</h2><p class="muted">Ainda não executada.</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <h2>${titulo}</h2>
+      <div class="dist">${res.distancia} km<small>${fmtMetros(res.distancia)} percorridos</small></div>
+      <p><strong>Caminho:</strong></p>
+      <p class="rota">${res.caminho.join(" → ")}</p>
+      <p><strong>Nós expandidos:</strong> ${res.expandidos}</p>`;
+  }
+
+  function renderizarResultados() {
+    renderCard("cardGulosa", "Busca gulosa (usa só h)", resultados.gulosa);
+    renderCard("cardAstar", "A* (usa f = g + h)", resultados.astar);
+
+    const g = resultados.gulosa, a = resultados.astar;
+    const comp = document.getElementById("comparacao");
+    if (g && a) {
+      const diff = g.distancia - a.distancia;
+      comp.textContent = diff > 0
+        ? `O A* encontrou um caminho ${diff} km (${fmtMetros(diff)}) mais curto que a gulosa, com ${a.expandidos} expansões contra ${g.expandidos} da gulosa.`
+        : `Os dois algoritmos encontraram caminhos de mesmo custo: ${a.distancia} km.`;
+    } else {
+      comp.textContent = "";
+    }
+  }
+
+  function limparTudo() {
+    pararAnimacao();
+    resultados.gulosa = null;
+    resultados.astar = null;
+    desenhar({ fechados: [], fronteira: [], caminho: [], expandidos: 0 });
+    document.getElementById("log").innerHTML = "";
+    logar("Escolha Busca gulosa ou A* para começar.");
+    renderizarResultados();
+  }
+
+  document.getElementById("btnGulosa").onclick = () => iniciar("gulosa");
+  document.getElementById("btnAstar").onclick = () => iniciar("astar");
+  document.getElementById("btnLimpar").onclick = limparTudo;
+
+  limparTudo();
+</script>
+</body>
+</html>
